@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter_assigments/core/database/hive_customer_model.dart';
 import 'package:flutter_assigments/core/database/local_db.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
@@ -37,10 +40,27 @@ class CustomerController extends GetxController {
   }
 
   Future<void> pickImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      imagePath.value = pickedFile.path;
+    PermissionStatus status;
+
+    if (Platform.isAndroid) {
+      status = await Permission.photos.request(); // Android 13+
+      if (status.isDenied) {
+        status = await Permission.storage.request(); // Below Android 13
+      }
+    } else {
+      status = await Permission.photos.request(); // iOS
+    }
+
+    if (status.isGranted) {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
+      if (pickedFile != null) {
+        imagePath.value = pickedFile.path;
+      }
+    } else {
+      Get.snackbar(
+          "Permission Denied", "Please allow photo access in settings.");
     }
   }
 
@@ -59,12 +79,29 @@ class CustomerController extends GetxController {
 
       latitude.value = position.latitude;
       longitude.value = position.longitude;
-      geoAddress.value =
-          "Lat: ${position.latitude}, Long: ${position.longitude}";
+      await getGeoAddress(position.latitude, position.longitude).then((value) {
+        geoAddress.value = value;
+      });
     } catch (e) {
       Get.snackbar("Error", "Failed to fetch location: $e");
     } finally {
       isFetchingLocation.value = false;
+    }
+  }
+
+  Future<String> getGeoAddress(double latitude, double longitude) async {
+    try {
+      List<Placemark> placemarks =
+          await placemarkFromCoordinates(latitude, longitude);
+
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks.first;
+        return "${place.street}, ${place.locality}, ${place.administrativeArea}, ${place.country}";
+      } else {
+        return "Address not found";
+      }
+    } catch (e) {
+      return "Error fetching address: $e";
     }
   }
 }
